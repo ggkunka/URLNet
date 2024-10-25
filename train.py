@@ -93,8 +93,8 @@ def main():
         char_seq_len=args.data_max_len_chars,
         l2_reg_lambda=args.train_l2_reg_lambda,
         mode=args.model_emb_mode,
-        filter_sizes=list(map(int, args.model_filter_sizes.split(","))),
-        num_classes=1,  # Binary classification
+        filter_sizes=list(map(int, args.model_filter_sizes.split(",")))
+    #    num_classes=1,  # Binary classification
     )
 
     # Define optimizer and loss function

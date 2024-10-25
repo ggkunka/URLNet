@@ -13,9 +13,6 @@ class TextCNN(tf.keras.Model):
         self.filter_sizes = filter_sizes
         self.num_filters = 256  # Number of filters per filter size
 
-        # Regularization
-        self.l2_regularizer = tf.keras.regularizers.L2(l2_reg_lambda)
-
         # Embedding layers
         if mode in [4, 5]:
             self.char_embedding = tf.keras.layers.Embedding(
@@ -77,15 +74,18 @@ class TextCNN(tf.keras.Model):
             fc_input_dim = total_filters
 
         self.dropout = tf.keras.layers.Dropout(rate=0.5)
-        self.fc1 = tf.keras.layers.Dense(512, activation='relu', kernel_regularizer=self.l2_regularizer)
-        self.fc2 = tf.keras.layers.Dense(256, activation='relu', kernel_regularizer=self.l2_regularizer)
-        self.fc3 = tf.keras.layers.Dense(128, activation='relu', kernel_regularizer=self.l2_regularizer)
-        self.output_layer = tf.keras.layers.Dense(2, kernel_regularizer=self.l2_regularizer)
+        self.fc1 = tf.keras.layers.Dense(512, activation='relu',
+                                         kernel_regularizer=tf.keras.regularizers.l2(l2_reg_lambda))
+        self.fc2 = tf.keras.layers.Dense(256, activation='relu',
+                                         kernel_regularizer=tf.keras.regularizers.l2(l2_reg_lambda))
+        self.fc3 = tf.keras.layers.Dense(128, activation='relu',
+                                         kernel_regularizer=tf.keras.regularizers.l2(l2_reg_lambda))
+        self.output_layer = tf.keras.layers.Dense(2,
+                                                  kernel_regularizer=tf.keras.regularizers.l2(l2_reg_lambda))
 
-    def call(self, inputs, training=False, dropout_keep_prob=1.0):
+    def call(self, inputs, training=False):
         # Apply embeddings
         pooled_outputs = []
-        l2_loss = 0.0
 
         if self.mode in [4, 5]:
             x_char = inputs['input_x_char']
@@ -120,7 +120,7 @@ class TextCNN(tf.keras.Model):
 
             h_pool = tf.concat(pooled_outputs, axis=-1)
             h_pool_flat = tf.reshape(h_pool, [-1, self.num_filters * len(self.filter_sizes)])
-            h_pool_flat = self.dropout(h_pool_flat, training=training and (dropout_keep_prob < 1.0))
+            h_pool_flat = self.dropout(h_pool_flat, training=training)
 
         # Character-level convolution and pooling
         if self.mode in [1, 3, 5]:
@@ -134,7 +134,7 @@ class TextCNN(tf.keras.Model):
 
             h_char_pool = tf.concat(char_pooled_outputs, axis=-1)
             h_char_pool_flat = tf.reshape(h_char_pool, [-1, self.num_filters * len(self.filter_sizes)])
-            h_char_pool_flat = self.dropout(h_char_pool_flat, training=training and (dropout_keep_prob < 1.0))
+            h_char_pool_flat = self.dropout(h_char_pool_flat, training=training)
 
         # Combine word and character features
         if self.mode in [3, 5]:

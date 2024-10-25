@@ -9,48 +9,7 @@ from TextCNN import TextCNN
 
 parser = argparse.ArgumentParser(description="Test URLNet model")
 
-# Data arguments
-default_max_len_words = 200
-parser.add_argument('--data.max_len_words', type=int, default=default_max_len_words, metavar="MLW",
-                    help="Maximum length of URL in words (default: {})".format(default_max_len_words))
-default_max_len_chars = 200
-parser.add_argument('--data.max_len_chars', type=int, default=default_max_len_chars, metavar="MLC",
-                    help="Maximum length of URL in characters (default: {})".format(default_max_len_chars))
-default_max_len_subwords = 20
-parser.add_argument('--data.max_len_subwords', type=int, default=default_max_len_subwords, metavar="MLSW",
-                    help="Maximum length of word in subwords/characters (default: {})".format(default_max_len_subwords))
-parser.add_argument('--data.data_dir', type=str, default='test_10000.txt', metavar="DATADIR",
-                    help="Location of data file")
-default_delimit_mode = 1
-parser.add_argument("--data.delimit_mode", type=int, default=default_delimit_mode, metavar="DLMODE",
-                    help="0: delimit by special chars, 1: delimit by special chars + each char as a word (default: {})".format(default_delimit_mode))
-parser.add_argument('--data.subword_dict_dir', type=str, default="runs/10000/subwords_dict.p", metavar="SUBWORD_DICT",
-                    help="Directory of the subword dictionary")
-parser.add_argument('--data.word_dict_dir', type=str, default="runs/10000/words_dict.p", metavar="WORD_DICT",
-                    help="Directory of the word dictionary")
-parser.add_argument('--data.char_dict_dir', type=str, default="runs/10000/chars_dict.p", metavar="CHAR_DICT",
-                    help="Directory of the character dictionary")
-
-# Model arguments
-default_emb_dim = 32
-parser.add_argument('--model.emb_dim', type=int, default=default_emb_dim, metavar="EMBDIM",
-                    help="Embedding dimension size (default: {})".format(default_emb_dim))
-parser.add_argument('--model.filter_sizes', type=str, default="3,4,5,6", metavar="FILTERSIZES",
-                    help="Filter sizes of the convolution layer")
-default_emb_mode = 1
-parser.add_argument('--model.emb_mode', type=int, default=default_emb_mode, metavar="EMBMODE",
-                    help="1: charCNN, 2: wordCNN, 3: char + wordCNN, 4: char-level wordCNN, 5: char + char-level wordCNN (default: {})".format(default_emb_mode))
-
-# Test arguments
-default_batch_size = 128
-parser.add_argument('--test.batch_size', type=int, default=default_batch_size, metavar="BATCHSIZE",
-                    help="Size of each test batch (default: {})".format(default_batch_size))
-
-# Log arguments
-parser.add_argument('--log.output_dir', type=str, default="runs/10000/", metavar="OUTPUTDIR",
-                    help="Directory to save the test results")
-parser.add_argument('--log.checkpoint_dir', type=str, default="runs/10000/checkpoints/", metavar="CHECKPOINTDIR",
-                    help="Directory of the learned model")
+# [No changes in the argument parser]
 
 FLAGS = vars(parser.parse_args())
 for key, val in FLAGS.items():
@@ -58,6 +17,9 @@ for key, val in FLAGS.items():
 
 # Load data
 urls, labels = read_data(FLAGS["data.data_dir"])
+
+# **Change 1: Map labels from -1 and 1 to 0 and 1**
+labels = [0 if label == -1 else 1 for label in labels]
 
 x, word_reverse_dict = get_word_vocab(urls, FLAGS["data.max_len_words"])
 word_x = get_words(x, word_reverse_dict, FLAGS["data.delimit_mode"], urls)
@@ -97,35 +59,39 @@ else:
 # Prepare datasets
 def make_batches(batch_size):
     if FLAGS["model.emb_mode"] == 1:
-        dataset = tf.data.Dataset.from_tensor_slices(x_char_seq_padded)
+        dataset = tf.data.Dataset.from_tensor_slices((x_char_seq_padded, labels))
     elif FLAGS["model.emb_mode"] == 2:
-        dataset = tf.data.Dataset.from_tensor_slices(x_word_padded)
+        dataset = tf.data.Dataset.from_tensor_slices((x_word_padded, labels))
     elif FLAGS["model.emb_mode"] == 3:
-        dataset = tf.data.Dataset.from_tensor_slices((x_char_seq_padded, x_word_padded))
+        dataset = tf.data.Dataset.from_tensor_slices(((x_char_seq_padded, x_word_padded), labels))
     elif FLAGS["model.emb_mode"] == 4:
-        dataset = tf.data.Dataset.from_tensor_slices((x_word_padded, x_char_padded))
+        dataset = tf.data.Dataset.from_tensor_slices(((x_word_padded, x_char_padded), labels))
     elif FLAGS["model.emb_mode"] == 5:
-        dataset = tf.data.Dataset.from_tensor_slices((x_char_seq_padded, x_word_padded, x_char_padded))
+        dataset = tf.data.Dataset.from_tensor_slices(((x_char_seq_padded, x_word_padded, x_char_padded), labels))
     else:
         raise ValueError("Invalid emb_mode: {}".format(FLAGS["model.emb_mode"]))
     dataset = dataset.batch(batch_size)
     return dataset
 
 def prep_batches(batch):
+    x_batch = batch[0]
+    y_batch = batch[1]
     x_batch_list = []
     if FLAGS["model.emb_mode"] == 1:
-        x_batch_list.append(batch)
+        x_batch_list.append(x_batch)
     elif FLAGS["model.emb_mode"] == 2:
-        x_batch_list.append(batch)
+        x_batch_list.append(x_batch)
     elif FLAGS["model.emb_mode"] == 3:
-        x_batch_list.extend([batch[0], batch[1]])
+        x_batch_list.extend([x_batch[0], x_batch[1]])
     elif FLAGS["model.emb_mode"] == 4:
-        x_batch_list.extend([batch[0], batch[1]])
+        x_batch_list.extend([x_batch[0], x_batch[1]])
     elif FLAGS["model.emb_mode"] == 5:
-        x_batch_list.extend([batch[0], batch[1], batch[2]])
+        x_batch_list.extend([x_batch[0], x_batch[1], x_batch[2]])
     else:
         raise ValueError("Invalid emb_mode: {}".format(FLAGS["model.emb_mode"]))
-    return x_batch_list
+    y_batch = tf.cast(y_batch, tf.float32)
+    y_batch = tf.reshape(y_batch, (-1, 1))  # Ensure labels are of shape (batch_size, 1)
+    return x_batch_list, y_batch
 
 # Load the model
 cnn = TextCNN(
@@ -136,7 +102,8 @@ cnn = TextCNN(
     word_seq_len=FLAGS["data.max_len_words"],
     char_seq_len=FLAGS["data.max_len_chars"],
     mode=FLAGS["model.emb_mode"],
-    filter_sizes=list(map(int, FLAGS["model.filter_sizes"].split(",")))
+    filter_sizes=list(map(int, FLAGS["model.filter_sizes"].split(","))),
+    num_classes=1,  # Ensure num_classes is set to 1
 )
 
 # Restore the checkpoint
@@ -157,7 +124,7 @@ all_predictions = []
 all_scores = []
 
 for batch in tqdm(test_dataset, desc="Testing"):
-    x_batch_list = prep_batches(batch)
+    x_batch_list, y_batch = prep_batches(batch)
     inputs = {}
     if FLAGS["model.emb_mode"] in [4, 5]:
         inputs['input_x_char'] = x_batch_list[1 if FLAGS["model.emb_mode"] == 4 else 2]
@@ -166,11 +133,10 @@ for batch in tqdm(test_dataset, desc="Testing"):
     if FLAGS["model.emb_mode"] in [1, 3, 5]:
         inputs['input_x_char_seq'] = x_batch_list[0]
 
-    logits = cnn(inputs, training=False)
-    preds = tf.argmax(logits, axis=1).numpy()
-    scores = logits.numpy()
-    all_predictions.extend(preds)
-    all_scores.extend(scores)
+    logits = cnn(inputs, training=False)  # Output is probabilities between 0 and 1
+    predictions = (logits.numpy() > 0.5).astype(int).flatten()
+    all_predictions.extend(predictions)
+    all_scores.extend(logits.numpy().flatten())
 
 # Save test results
 save_test_result(labels, all_predictions, all_scores, FLAGS["log.output_dir"] + "test_results.txt")

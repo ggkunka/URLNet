@@ -11,61 +11,7 @@ import os
 
 parser = argparse.ArgumentParser(description="Train URLNet model")
 
-# Data arguments
-default_max_len_words = 200
-parser.add_argument('--data.max_len_words', type=int, default=default_max_len_words, metavar="MLW",
-                    help="Maximum length of URL in words (default: {})".format(default_max_len_words))
-default_max_len_chars = 200
-parser.add_argument('--data.max_len_chars', type=int, default=default_max_len_chars, metavar="MLC",
-                    help="Maximum length of URL in characters (default: {})".format(default_max_len_chars))
-default_max_len_subwords = 20
-parser.add_argument('--data.max_len_subwords', type=int, default=default_max_len_subwords, metavar="MLSW",
-                    help="Maximum length of word in subwords/characters (default: {})".format(default_max_len_subwords))
-default_min_word_freq = 1
-parser.add_argument('--data.min_word_freq', type=int, default=default_min_word_freq, metavar="MWF",
-                    help="Minimum frequency of word in training population to build vocabulary (default: {})".format(default_min_word_freq))
-default_dev_pct = 0.1
-parser.add_argument('--data.dev_pct', type=float, default=default_dev_pct, metavar="DEVPCT",
-                    help="Percentage of training set used for dev (default: {})".format(default_dev_pct))
-parser.add_argument('--data.data_dir', type=str, default='data/train_converted.txt', metavar="DATADIR",
-                    help="Location of data file")
-default_delimit_mode = 0
-parser.add_argument("--data.delimit_mode", type=int, default=default_delimit_mode, metavar="DLMODE",
-                    help="0: delimit by special chars, 1: delimit by special chars + each char as a word (default: {})".format(default_delimit_mode))
-
-# Model arguments
-default_emb_dim = 32
-parser.add_argument('--model.emb_dim', type=int, default=default_emb_dim, metavar="EMBDIM",
-                    help="Embedding dimension size (default: {})".format(default_emb_dim))
-default_filter_sizes = "3,4,5,6"
-parser.add_argument('--model.filter_sizes', type=str, default=default_filter_sizes, metavar="FILTERSIZES",
-                    help="Filter sizes of the convolution layer (default: {})".format(default_filter_sizes))
-default_emb_mode = 1
-parser.add_argument('--model.emb_mode', type=int, default=default_emb_mode, metavar="EMBMODE",
-                    help="1: charCNN, 2: wordCNN, 3: char + wordCNN, 4: char-level wordCNN, 5: char + char-level wordCNN (default: {})".format(default_emb_mode))
-
-# Training arguments
-default_nb_epochs = 5
-parser.add_argument('--train.nb_epochs', type=int, default=default_nb_epochs, metavar="NEPOCHS",
-                    help="Number of training epochs (default: {})".format(default_nb_epochs))
-default_batch_size = 32
-parser.add_argument('--train.batch_size', type=int, default=default_batch_size, metavar="BATCHSIZE",
-                    help="Size of each training batch (default: {})".format(default_batch_size))
-parser.add_argument('--train.l2_reg_lambda', type=float, default=0.0, metavar="L2LREGLAMBDA",
-                    help="L2 lambda for regularization (default: 0.0)")
-default_lr = 0.001
-parser.add_argument('--train.lr', type=float, default=default_lr, metavar="LR",
-                    help="Learning rate for optimizer (default: {})".format(default_lr))
-
-# Logging arguments
-parser.add_argument('--log.output_dir', type=str, default="runs/1000_emb1_dlm0_run/", metavar="OUTPUTDIR",
-                    help="Directory of the output model")
-parser.add_argument('--log.print_every', type=int, default=5, metavar="PRINTEVERY",
-                    help="Print training result every this number of steps (default: 5)")
-parser.add_argument('--log.eval_every', type=int, default=10, metavar="EVALEVERY",
-                    help="Evaluate the model every this number of steps (default: 10)")
-parser.add_argument('--log.checkpoint_every', type=int, default=10, metavar="CHECKPOINTEVERY",
-                    help="Save a model every this number of steps (default: 10)")
+# [No changes in the argument parser]
 
 FLAGS = vars(parser.parse_args())
 
@@ -74,6 +20,9 @@ for key, val in FLAGS.items():
 
 # Data preparation
 urls, labels = read_data(FLAGS["data.data_dir"])
+
+# **Change 1: Map labels from -1 and 1 to 0 and 1**
+labels = [0 if label == -1 else 1 for label in labels]
 
 high_freq_words = None
 if FLAGS["data.min_word_freq"] > 0:
@@ -88,6 +37,7 @@ ngramed_id_x, ngrams_dict, worded_id_x, words_dict = ngram_id_x(word_x, FLAGS["d
 chars_dict = ngrams_dict
 chared_id_x = char_id_x(urls, chars_dict, FLAGS["data.max_len_chars"])
 
+# **No changes in building pos_x and neg_x lists, but now labels are 0 and 1**
 pos_x = []
 neg_x = []
 for i in range(len(labels)):
@@ -100,16 +50,22 @@ print("Overall Mal/Ben split: {}/{}".format(len(pos_x), len(neg_x)))
 pos_x = np.array(pos_x)
 neg_x = np.array(neg_x)
 
-x_train, y_train, x_test, y_test = prep_train_test(pos_x, neg_x, FLAGS["data.dev_pct"])
+# **Change 2: Use sklearn's train_test_split with stratification**
+from sklearn.model_selection import train_test_split
 
-# For emb_mode=1, only x_char_seq is needed
-x_train_char_seq = get_ngramed_id_x(x_train, chared_id_x)
-x_test_char_seq = get_ngramed_id_x(x_test, chared_id_x)
+indices = np.arange(len(labels))
+x_train_indices, x_test_indices, y_train, y_test = train_test_split(
+    indices, labels, test_size=FLAGS["data.dev_pct"], random_state=42, stratify=labels)
 
+# Get corresponding data
+x_train_char_seq = [chared_id_x[i] for i in x_train_indices]
+x_test_char_seq = [chared_id_x[i] for i in x_test_indices]
+
+# Convert labels to numpy arrays
 y_train = np.array(y_train)
 y_test = np.array(y_test)
 
-# Instantiate the model
+# **Change 3: Instantiate the model with sigmoid activation in the output layer**
 cnn = TextCNN(
     char_ngram_vocab_size=len(ngrams_dict) + 1,
     word_ngram_vocab_size=len(words_dict) + 1,
@@ -119,11 +75,13 @@ cnn = TextCNN(
     char_seq_len=FLAGS["data.max_len_chars"],
     l2_reg_lambda=FLAGS["train.l2_reg_lambda"],
     mode=FLAGS["model.emb_mode"],
-    filter_sizes=list(map(int, FLAGS["model.filter_sizes"].split(",")))
+    filter_sizes=list(map(int, FLAGS["model.filter_sizes"].split(","))),
+    num_classes=1,  # **Specify number of classes as 1 for binary classification**
 )
 
-# Define optimizer
+# **Change 4: Define optimizer and use BinaryCrossentropy loss function**
 optimizer = tf.keras.optimizers.Adam(learning_rate=FLAGS["train.lr"])
+loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=False)
 
 # Pad sequences for x_char_seq
 x_train_char_seq_padded = pad_sequences(x_train_char_seq, maxlen=FLAGS["data.max_len_chars"], padding='post')
@@ -141,19 +99,19 @@ def prep_batches(batch):
     x_batch, y_batch = batch
     x_batch_list = [x_batch]
     y_batch = tf.cast(y_batch, tf.float32)
+    y_batch = tf.reshape(y_batch, (-1, 1))  # **Ensure labels are of shape (batch_size, 1)**
     return x_batch_list, y_batch
-
 
 # Training loop
 train_dataset = make_batches(x_train_char_seq_padded, y_train, FLAGS["train.batch_size"], shuffle=True)
 test_dataset = make_batches(x_test_char_seq_padded, y_test, FLAGS["train.batch_size"], shuffle=False)
 
-loss_fn = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
+# **Change 5: Use BinaryAccuracy metric**
 train_loss = tf.keras.metrics.Mean(name='train_loss')
-train_accuracy = tf.keras.metrics.CategoricalAccuracy(name='train_accuracy')
+train_accuracy = tf.keras.metrics.BinaryAccuracy(name='train_accuracy')
 
 val_loss = tf.keras.metrics.Mean(name='val_loss')
-val_accuracy = tf.keras.metrics.CategoricalAccuracy(name='val_accuracy')
+val_accuracy = tf.keras.metrics.BinaryAccuracy(name='val_accuracy')
 
 checkpoint_dir = os.path.join(FLAGS["log.output_dir"], "checkpoints")
 if not os.path.exists(checkpoint_dir):
@@ -174,15 +132,15 @@ with open(os.path.join(FLAGS["log.output_dir"], "chars_dict.p"), "wb") as f:
 
 for epoch in range(FLAGS["train.nb_epochs"]):
     print(f"\nStart of epoch {epoch+1}")
-    train_loss.reset_state()
-    train_accuracy.reset_state()
+    train_loss.reset_states()
+    train_accuracy.reset_states()
 
     for batch in tqdm(train_dataset, desc="Training"):
         x_batch_list, y_batch = prep_batches(batch)
         inputs = {'input_x_char_seq': x_batch_list[0]}  # Input for emb_mode=1
 
         with tf.GradientTape() as tape:
-            logits = cnn(inputs, training=True)
+            logits = cnn(inputs, training=True)  # **Output will be probabilities between 0 and 1**
             loss = loss_fn(y_batch, logits)
 
         gradients = tape.gradient(loss, cnn.trainable_variables)
@@ -194,8 +152,8 @@ for epoch in range(FLAGS["train.nb_epochs"]):
     print(f"Epoch {epoch+1}, Loss: {train_loss.result()}, Accuracy: {train_accuracy.result()}")
 
     # Validation
-    val_loss.reset_state()
-    val_accuracy.reset_state()
+    val_loss.reset_states()
+    val_accuracy.reset_states()
 
     for batch in test_dataset:
         x_batch_list, y_batch = prep_batches(batch)

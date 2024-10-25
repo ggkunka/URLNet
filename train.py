@@ -47,8 +47,8 @@ def main():
     # Data preparation
     urls, labels = read_data(args.data_data_dir)
 
-    # Map labels from -1 and 1 to 0 and 1
-    labels = [0 if label == -1 else 1 for label in labels]
+    # **No need to map labels; they are already 0 and 1**
+    # labels = [0 if label == -1 else 1 for label in labels]
 
     high_freq_words = None
     if args.data_min_word_freq > 1:
@@ -67,7 +67,7 @@ def main():
     print(f"Size of words_dict: {len(words_dict)}")
     print(f"Size of chars_dict: {len(chars_dict)}")
 
-    # Split data into training and validation sets
+    # Split data into training and validation sets using stratification
     indices = np.arange(len(labels))
     x_train_indices, x_val_indices, y_train, y_val = train_test_split(
         indices, labels, test_size=args.data_dev_pct, random_state=42, stratify=labels)

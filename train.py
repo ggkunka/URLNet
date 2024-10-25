@@ -24,12 +24,12 @@ parser.add_argument('--data.max_len_subwords', type=int, default=default_max_len
 default_min_word_freq = 1
 parser.add_argument('--data.min_word_freq', type=int, default=default_min_word_freq, metavar="MWF",
                     help="Minimum frequency of word in training population to build vocabulary (default: {})".format(default_min_word_freq))
-default_dev_pct = 0.001
+default_dev_pct = 0.1
 parser.add_argument('--data.dev_pct', type=float, default=default_dev_pct, metavar="DEVPCT",
                     help="Percentage of training set used for dev (default: {})".format(default_dev_pct))
-parser.add_argument('--data.data_dir', type=str, default='train_10000.txt', metavar="DATADIR",
+parser.add_argument('--data.data_dir', type=str, default='data/train_converted.txt', metavar="DATADIR",
                     help="Location of data file")
-default_delimit_mode = 1
+default_delimit_mode = 0
 parser.add_argument("--data.delimit_mode", type=int, default=default_delimit_mode, metavar="DLMODE",
                     help="0: delimit by special chars, 1: delimit by special chars + each char as a word (default: {})".format(default_delimit_mode))
 
@@ -48,7 +48,7 @@ parser.add_argument('--model.emb_mode', type=int, default=default_emb_mode, meta
 default_nb_epochs = 5
 parser.add_argument('--train.nb_epochs', type=int, default=default_nb_epochs, metavar="NEPOCHS",
                     help="Number of training epochs (default: {})".format(default_nb_epochs))
-default_batch_size = 128
+default_batch_size = 32
 parser.add_argument('--train.batch_size', type=int, default=default_batch_size, metavar="BATCHSIZE",
                     help="Size of each training batch (default: {})".format(default_batch_size))
 parser.add_argument('--train.l2_reg_lambda', type=float, default=0.0, metavar="L2LREGLAMBDA",
@@ -58,14 +58,14 @@ parser.add_argument('--train.lr', type=float, default=default_lr, metavar="LR",
                     help="Learning rate for optimizer (default: {})".format(default_lr))
 
 # Logging arguments
-parser.add_argument('--log.output_dir', type=str, default="runs/10000/", metavar="OUTPUTDIR",
+parser.add_argument('--log.output_dir', type=str, default="runs/1000_emb1_dlm0_run/", metavar="OUTPUTDIR",
                     help="Directory of the output model")
-parser.add_argument('--log.print_every', type=int, default=50, metavar="PRINTEVERY",
-                    help="Print training result every this number of steps (default: 50)")
-parser.add_argument('--log.eval_every', type=int, default=500, metavar="EVALEVERY",
-                    help="Evaluate the model every this number of steps (default: 500)")
-parser.add_argument('--log.checkpoint_every', type=int, default=500, metavar="CHECKPOINTEVERY",
-                    help="Save a model every this number of steps (default: 500)")
+parser.add_argument('--log.print_every', type=int, default=5, metavar="PRINTEVERY",
+                    help="Print training result every this number of steps (default: 5)")
+parser.add_argument('--log.eval_every', type=int, default=10, metavar="EVALEVERY",
+                    help="Evaluate the model every this number of steps (default: 10)")
+parser.add_argument('--log.checkpoint_every', type=int, default=10, metavar="CHECKPOINTEVERY",
+                    help="Save a model every this number of steps (default: 10)")
 
 FLAGS = vars(parser.parse_args())
 
@@ -102,12 +102,7 @@ neg_x = np.array(neg_x)
 
 x_train, y_train, x_test, y_test = prep_train_test(pos_x, neg_x, FLAGS["data.dev_pct"])
 
-x_train_char = get_ngramed_id_x(x_train, ngramed_id_x)
-x_test_char = get_ngramed_id_x(x_test, ngramed_id_x)
-
-x_train_word = get_ngramed_id_x(x_train, worded_id_x)
-x_test_word = get_ngramed_id_x(x_test, worded_id_x)
-
+# For emb_mode=1, only x_char_seq is needed
 x_train_char_seq = get_ngramed_id_x(x_train, chared_id_x)
 x_test_char_seq = get_ngramed_id_x(x_test, chared_id_x)
 
@@ -130,32 +125,13 @@ cnn = TextCNN(
 # Define optimizer
 optimizer = tf.keras.optimizers.Adam(learning_rate=FLAGS["train.lr"])
 
-# Pad sequences
+# Pad sequences for x_char_seq
 x_train_char_seq_padded = pad_sequences(x_train_char_seq, maxlen=FLAGS["data.max_len_chars"], padding='post')
 x_test_char_seq_padded = pad_sequences(x_test_char_seq, maxlen=FLAGS["data.max_len_chars"], padding='post')
 
-# For emb_mode that uses x_word or x_char
-x_train_word_padded = pad_sequences(x_train_word, maxlen=FLAGS["data.max_len_words"], padding='post')
-x_test_word_padded = pad_sequences(x_test_word, maxlen=FLAGS["data.max_len_words"], padding='post')
-
-x_train_char_padded = pad_sequences(x_train_char, maxlen=FLAGS["data.max_len_words"], padding='post')
-x_test_char_padded = pad_sequences(x_test_char, maxlen=FLAGS["data.max_len_words"], padding='post')
-
 # Prepare datasets
-def make_batches(x_char_seq, x_word, x_char, y, batch_size, shuffle=True):
-    dataset = None
-    if FLAGS["model.emb_mode"] == 1:
-        dataset = tf.data.Dataset.from_tensor_slices(((x_char_seq,), y))
-    elif FLAGS["model.emb_mode"] == 2:
-        dataset = tf.data.Dataset.from_tensor_slices(((x_word,), y))
-    elif FLAGS["model.emb_mode"] == 3:
-        dataset = tf.data.Dataset.from_tensor_slices(((x_char_seq, x_word), y))
-    elif FLAGS["model.emb_mode"] == 4:
-        dataset = tf.data.Dataset.from_tensor_slices(((x_word, x_char), y))
-    elif FLAGS["model.emb_mode"] == 5:
-        dataset = tf.data.Dataset.from_tensor_slices(((x_char_seq, x_word, x_char), y))
-    else:
-        raise ValueError("Invalid emb_mode: {}".format(FLAGS["model.emb_mode"]))
+def make_batches(x_char_seq, y, batch_size, shuffle=True):
+    dataset = tf.data.Dataset.from_tensor_slices((x_char_seq, y))
     if shuffle:
         dataset = dataset.shuffle(buffer_size=10000)
     dataset = dataset.batch(batch_size)
@@ -163,54 +139,13 @@ def make_batches(x_char_seq, x_word, x_char, y, batch_size, shuffle=True):
 
 def prep_batches(batch):
     x_batch, y_batch = batch
-    x_batch_list = []
-
-    if FLAGS["model.emb_mode"] in [1]:
-        x_char_seq = pad_sequences(x_batch[0], maxlen=FLAGS["data.max_len_chars"], padding='post')
-        x_batch_list.append(x_char_seq)
-    elif FLAGS["model.emb_mode"] in [2]:
-        x_word = pad_sequences(x_batch[0], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_batch_list.append(x_word)
-    elif FLAGS["model.emb_mode"] in [3]:
-        x_char_seq = pad_sequences(x_batch[0], maxlen=FLAGS["data.max_len_chars"], padding='post')
-        x_word = pad_sequences(x_batch[1], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_batch_list.extend([x_char_seq, x_word])
-    elif FLAGS["model.emb_mode"] in [4]:
-        x_word = pad_sequences(x_batch[0], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_char = pad_sequences(x_batch[1], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_batch_list.extend([x_word, x_char])
-    elif FLAGS["model.emb_mode"] in [5]:
-        x_char_seq = pad_sequences(x_batch[0], maxlen=FLAGS["data.max_len_chars"], padding='post')
-        x_word = pad_sequences(x_batch[1], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_char = pad_sequences(x_batch[2], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_batch_list.extend([x_char_seq, x_word, x_char])
-    else:
-        raise ValueError("Invalid emb_mode: {}".format(FLAGS["model.emb_mode"]))
-
+    x_batch_list = [x_batch]
     y_batch = y_batch.astype(np.float32)
     return x_batch_list, y_batch
 
 # Training loop
-#train_dataset = make_batches(x_train_char_seq, x_train_word, x_train_char, y_train, FLAGS["train.batch_size"], shuffle=True)
-#test_dataset = make_batches(x_test_char_seq, x_test_word, x_test_char, y_test, FLAGS["train.batch_size"], shuffle=False)
-train_dataset = make_batches(
-    x_train_char_seq_padded,
-    x_train_word_padded,
-    x_train_char_padded,
-    y_train,
-    FLAGS["train.batch_size"],
-    shuffle=True
-)
-
-test_dataset = make_batches(
-    x_test_char_seq_padded,
-    x_test_word_padded,
-    x_test_char_padded,
-    y_test,
-    FLAGS["train.batch_size"],
-    shuffle=False
-)
-
+train_dataset = make_batches(x_train_char_seq_padded, y_train, FLAGS["train.batch_size"], shuffle=True)
+test_dataset = make_batches(x_test_char_seq_padded, y_test, FLAGS["train.batch_size"], shuffle=False)
 
 loss_fn = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
 train_loss = tf.keras.metrics.Mean(name='train_loss')
@@ -243,14 +178,7 @@ for epoch in range(FLAGS["train.nb_epochs"]):
 
     for batch in tqdm(train_dataset, desc="Training"):
         x_batch_list, y_batch = prep_batches(batch)
-        inputs = {}
-        if FLAGS["model.emb_mode"] in [4, 5]:
-            inputs['input_x_char'] = x_batch_list[1 if FLAGS["model.emb_mode"] == 4 else 2]
-            inputs['input_x_char_pad_idx'] = None  # Adjust if needed
-        if FLAGS["model.emb_mode"] in [2, 3, 4, 5]:
-            inputs['input_x_word'] = x_batch_list[0 if FLAGS["model.emb_mode"] in [2, 4] else 1]
-        if FLAGS["model.emb_mode"] in [1, 3, 5]:
-            inputs['input_x_char_seq'] = x_batch_list[0]
+        inputs = {'input_x_char_seq': x_batch_list[0]}  # Input for emb_mode=1
 
         with tf.GradientTape() as tape:
             logits = cnn(inputs, training=True)
@@ -270,14 +198,7 @@ for epoch in range(FLAGS["train.nb_epochs"]):
 
     for batch in test_dataset:
         x_batch_list, y_batch = prep_batches(batch)
-        inputs = {}
-        if FLAGS["model.emb_mode"] in [4, 5]:
-            inputs['input_x_char'] = x_batch_list[1 if FLAGS["model.emb_mode"] == 4 else 2]
-            inputs['input_x_char_pad_idx'] = None  # Adjust if needed
-        if FLAGS["model.emb_mode"] in [2, 3, 4, 5]:
-            inputs['input_x_word'] = x_batch_list[0 if FLAGS["model.emb_mode"] in [2, 4] else 1]
-        if FLAGS["model.emb_mode"] in [1, 3, 5]:
-            inputs['input_x_char_seq'] = x_batch_list[0]
+        inputs = {'input_x_char_seq': x_batch_list[0]}  # Input for emb_mode=1
 
         logits = cnn(inputs, training=False)
         loss = loss_fn(y_batch, logits)

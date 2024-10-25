@@ -41,8 +41,8 @@ def main():
     # Load data
     urls, labels = read_data(args.data_data_dir)
 
-    # Map labels from -1 and 1 to 0 and 1
-    labels = [0 if label == -1 else 1 for label in labels]
+    # **No need to map labels; they are already 0 and 1**
+    # labels = [0 if label == -1 else 1 for label in labels]
 
     x, word_reverse_dict = get_word_vocab(urls, args.data_max_len_words)
     word_x = get_words(x, word_reverse_dict, args.data_delimit_mode, urls)

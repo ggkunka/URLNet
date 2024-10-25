@@ -173,8 +173,8 @@ with open(os.path.join(FLAGS["log.output_dir"], "chars_dict.p"), "wb") as f:
 
 for epoch in range(FLAGS["train.nb_epochs"]):
     print(f"\nStart of epoch {epoch+1}")
-    train_loss.reset_states()
-    train_accuracy.reset_states()
+    train_loss.reset_state()
+    train_accuracy.reset_state()
 
     for batch in tqdm(train_dataset, desc="Training"):
         x_batch_list, y_batch = prep_batches(batch)
@@ -193,8 +193,8 @@ for epoch in range(FLAGS["train.nb_epochs"]):
     print(f"Epoch {epoch+1}, Loss: {train_loss.result()}, Accuracy: {train_accuracy.result()}")
 
     # Validation
-    val_loss.reset_states()
-    val_accuracy.reset_states()
+    val_loss.reset_state()
+    val_accuracy.reset_state()
 
     for batch in test_dataset:
         x_batch_list, y_batch = prep_batches(batch)

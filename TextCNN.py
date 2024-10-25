@@ -80,8 +80,10 @@ class TextCNN(tf.keras.Model):
                                          kernel_regularizer=tf.keras.regularizers.l2(l2_reg_lambda))
         self.fc3 = tf.keras.layers.Dense(128, activation='relu',
                                          kernel_regularizer=tf.keras.regularizers.l2(l2_reg_lambda))
-        self.output_layer = tf.keras.layers.Dense(2,
+        #self.output_layer = tf.keras.layers.Dense(2,
                                                   kernel_regularizer=tf.keras.regularizers.l2(l2_reg_lambda))
+        self.output_layer = tf.keras.layers.Dense(1, activation='sigmoid')
+
 
     def call(self, inputs, training=False):
         # Apply embeddings

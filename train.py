@@ -130,6 +130,17 @@ cnn = TextCNN(
 # Define optimizer
 optimizer = tf.keras.optimizers.Adam(learning_rate=FLAGS["train.lr"])
 
+# Pad sequences
+x_train_char_seq_padded = pad_sequences(x_train_char_seq, maxlen=FLAGS["data.max_len_chars"], padding='post')
+x_test_char_seq_padded = pad_sequences(x_test_char_seq, maxlen=FLAGS["data.max_len_chars"], padding='post')
+
+# For emb_mode that uses x_word or x_char
+x_train_word_padded = pad_sequences(x_train_word, maxlen=FLAGS["data.max_len_words"], padding='post')
+x_test_word_padded = pad_sequences(x_test_word, maxlen=FLAGS["data.max_len_words"], padding='post')
+
+x_train_char_padded = pad_sequences(x_train_char, maxlen=FLAGS["data.max_len_words"], padding='post')
+x_test_char_padded = pad_sequences(x_test_char, maxlen=FLAGS["data.max_len_words"], padding='post')
+
 # Prepare datasets
 def make_batches(x_char_seq, x_word, x_char, y, batch_size, shuffle=True):
     dataset = None
@@ -180,8 +191,26 @@ def prep_batches(batch):
     return x_batch_list, y_batch
 
 # Training loop
-train_dataset = make_batches(x_train_char_seq, x_train_word, x_train_char, y_train, FLAGS["train.batch_size"], shuffle=True)
-test_dataset = make_batches(x_test_char_seq, x_test_word, x_test_char, y_test, FLAGS["train.batch_size"], shuffle=False)
+#train_dataset = make_batches(x_train_char_seq, x_train_word, x_train_char, y_train, FLAGS["train.batch_size"], shuffle=True)
+#test_dataset = make_batches(x_test_char_seq, x_test_word, x_test_char, y_test, FLAGS["train.batch_size"], shuffle=False)
+train_dataset = make_batches(
+    x_train_char_seq_padded,
+    x_train_word_padded,
+    x_train_char_padded,
+    y_train,
+    FLAGS["train.batch_size"],
+    shuffle=True
+)
+
+test_dataset = make_batches(
+    x_test_char_seq_padded,
+    x_test_word_padded,
+    x_test_char_padded,
+    y_test,
+    FLAGS["train.batch_size"],
+    shuffle=False
+)
+
 
 loss_fn = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
 train_loss = tf.keras.metrics.Mean(name='train_loss')

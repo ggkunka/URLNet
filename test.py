@@ -139,6 +139,9 @@ if latest_checkpoint:
 else:
     print("No checkpoint found at {}".format(FLAGS["log.checkpoint_dir"]))
 
+# Pad sequences
+x_char_seq_padded = pad_sequences(chared_id_x, maxlen=FLAGS["data.max_len_chars"], padding='post')
+
 # Prepare dataset
 test_dataset = make_batches(chared_id_x, worded_id_x, chared_id_x, FLAGS["test.batch_size"])
 

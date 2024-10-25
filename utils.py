@@ -1,6 +1,5 @@
 import time
 import numpy as np
-from collections import defaultdict
 from bisect import bisect_left
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.preprocessing.text import Tokenizer
@@ -20,7 +19,8 @@ def read_data(file_dir):
 
 def split_url(line, part):
     # Your existing implementation
-    pass  # Omitted for brevity since it remains the same
+    # Omitted here as it remains the same
+    pass
 
 def get_word_vocab(urls, max_length_words, min_word_freq=0):
     tokenizer = Tokenizer(filters='', lower=False, oov_token='<UNKNOWN>')
@@ -38,12 +38,49 @@ def get_word_vocab(urls, max_length_words, min_word_freq=0):
     return x, reverse_dict
 
 def get_words(x, reverse_dict, delimit_mode, urls=None):
-    # Your existing implementation adjusted for updated reverse_dict
-    pass  # Omitted for brevity since it remains the same
+    processed_x = []
+    if delimit_mode == 0:
+        for url in x:
+            words = []
+            for word_id in url:
+                if word_id != 0:
+                    words.append(reverse_dict[word_id])
+                else:
+                    break
+            processed_x.append(words)
+    elif delimit_mode == 1:
+        for i in range(len(x)):
+            word_url = x[i]
+            raw_url = urls[i]
+            words = []
+            idx = 0
+            for word_id in word_url:
+                if word_id == 0:
+                    words.extend(list(raw_url[idx:]))
+                    break
+                else:
+                    word = reverse_dict[word_id]
+                    word_start_idx = raw_url.find(word, idx)
+                    if word_start_idx == -1:
+                        words.extend(list(raw_url[idx:]))
+                        break
+                    special_chars = list(raw_url[idx:word_start_idx])
+                    words.extend(special_chars)
+                    words.append(word)
+                    idx = word_start_idx + len(word)
+                    if idx >= len(raw_url):
+                        break
+            processed_x.append(words)
+    return processed_x
 
 def get_char_ngrams(ngram_len, word):
-    # Your existing implementation
-    pass  # Omitted for brevity since it remains the same
+    word = "<" + word + ">"
+    chars = list(word)
+    ngrams = []
+    for i in range(len(chars) - ngram_len + 1):
+        ngram = ''.join(chars[i:i+ngram_len])
+        ngrams.append(ngram)
+    return ngrams
 
 def char_id_x(urls, char_dict, max_len_chars):
     chared_id_x = []
@@ -54,12 +91,81 @@ def char_id_x(urls, char_dict, max_len_chars):
     return chared_id_x
 
 def ngram_id_x(word_x, max_len_subwords, high_freq_words=None):
-    # Your existing implementation adjusted to use the updated tokenizer
-    pass  # Omitted for brevity since it remains the same
+    char_ngram_len = 1
+    all_ngrams = set()
+    ngramed_x = []
+    all_words = set()
+    worded_x = []
+    high_freq_words_set = set(high_freq_words) if high_freq_words else None
+
+    for url in word_x:
+        url_in_ngrams = []
+        url_in_words = []
+        for word in url:
+            ngrams = get_char_ngrams(char_ngram_len, word)
+            if (len(ngrams) > max_len_subwords) or \
+               (high_freq_words_set and len(word) > 1 and word not in high_freq_words_set):
+                ngrams = ngrams[:max_len_subwords]
+                all_ngrams.update(ngrams)
+                url_in_ngrams.append(ngrams)
+                all_words.add("<UNKNOWN>")
+                url_in_words.append("<UNKNOWN>")
+            else:
+                all_ngrams.update(ngrams)
+                url_in_ngrams.append(ngrams)
+                all_words.add(word)
+                url_in_words.append(word)
+        ngramed_x.append(url_in_ngrams)
+        worded_x.append(url_in_words)
+
+    ngrams_dict = {ngram: idx+1 for idx, ngram in enumerate(sorted(all_ngrams))}
+    print("Size of ngram vocabulary: {}".format(len(ngrams_dict)))
+    words_dict = {word: idx+1 for idx, word in enumerate(sorted(all_words))}
+    print("Size of word vocabulary: {}".format(len(words_dict)))
+    print("Index of <UNKNOWN> word: {}".format(words_dict.get("<UNKNOWN>", "Not found")))
+
+    ngramed_id_x = []
+    for ngramed_url in ngramed_x:
+        url_in_ngrams = []
+        for ngramed_word in ngramed_url:
+            ngram_ids = [ngrams_dict.get(ngram, 0) for ngram in ngramed_word]
+            url_in_ngrams.append(ngram_ids)
+        ngramed_id_x.append(url_in_ngrams)
+
+    worded_id_x = []
+    for worded_url in worded_x:
+        word_ids = [words_dict.get(word, 0) for word in worded_url]
+        worded_id_x.append(word_ids)
+
+    return ngramed_id_x, ngrams_dict, worded_id_x, words_dict
 
 def ngram_id_x_from_dict(word_x, max_len_subwords, ngram_dict, word_dict=None):
-    # Your existing implementation adjusted for updated dicts
-    pass  # Omitted for brevity since it remains the same
+    char_ngram_len = 1
+    ngramed_id_x = []
+    worded_id_x = []
+    word_vocab = set(word_dict.keys()) if word_dict else None
+
+    for url in word_x:
+        url_in_ngrams = []
+        url_in_words = []
+        for word in url:
+            ngrams = get_char_ngrams(char_ngram_len, word)
+            if len(ngrams) > max_len_subwords:
+                ngrams = ngrams[:max_len_subwords]
+                word = "<UNKNOWN>"
+
+            ngrams_id = [ngram_dict.get(ngram, 0) for ngram in ngrams]
+            url_in_ngrams.append(ngrams_id)
+
+            if word_dict:
+                word_id = word_dict.get(word, word_dict.get("<UNKNOWN>", 0))
+            else:
+                word_id = 0
+            url_in_words.append(word_id)
+        ngramed_id_x.append(url_in_ngrams)
+        worded_id_x.append(url_in_words)
+
+    return ngramed_id_x, worded_id_x
 
 def is_in(a, x):
     i = bisect_left(a, x)
@@ -103,25 +209,13 @@ def prep_train_test(pos_x, neg_x, dev_pct):
 def get_ngramed_id_x(x_idxs, ngramed_id_x):
     return [ngramed_id_x[idx] for idx in x_idxs]
 
-def pad_seq(urls, max_d1=0, max_d2=0, embedding_size=128):
-    # Adjusted implementation
-    pass  # Omitted for brevity since it may not be used in the updated code
-
-def pad_seq_in_word(urls, max_d1=0):
-    # Adjusted implementation
-    pass  # Omitted for brevity since we're using Keras pad_sequences
-
 def softmax(x):
     e_x = np.exp(x - np.max(x))
     return e_x / e_x.sum()
 
-def batch_iter(data, batch_size, num_epochs, shuffle=True):
-    # This function may not be necessary as we're using tf.data.Dataset
-    pass
-
 def save_test_result(labels, all_predictions, all_scores, output_dir):
-    output_labels = [label if label == 1 else -1 for label in labels]
-    output_preds = [pred if pred == 1 else -1 for pred in all_predictions]
+    output_labels = [1 if i == 1 else -1 for i in labels]
+    output_preds = [1 if i == 1 else -1 for i in all_predictions]
     softmax_scores = [softmax(score) for score in all_scores]
     with open(output_dir, "w") as file:
         file.write("label\tpredict\tscore\n")

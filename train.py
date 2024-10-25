@@ -140,8 +140,9 @@ def make_batches(x_char_seq, y, batch_size, shuffle=True):
 def prep_batches(batch):
     x_batch, y_batch = batch
     x_batch_list = [x_batch]
-    y_batch = y_batch.astype(np.float32)
+    y_batch = tf.cast(y_batch, tf.float32)
     return x_batch_list, y_batch
+
 
 # Training loop
 train_dataset = make_batches(x_train_char_seq_padded, y_train, FLAGS["train.batch_size"], shuffle=True)

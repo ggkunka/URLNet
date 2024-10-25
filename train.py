@@ -1,18 +1,13 @@
-import re
-import time
-import datetime
-import os
-import pdb
-import pickle
 import argparse
 import numpy as np
 from tqdm import tqdm
-from bisect import bisect_left
 import tensorflow as tf
-from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from TextCNN import TextCNN
 from utils import *
+import pickle
+import datetime
+import os
 
 parser = argparse.ArgumentParser(description="Train URLNet model")
 
@@ -116,67 +111,43 @@ x_test_word = get_ngramed_id_x(x_test, worded_id_x)
 x_train_char_seq = get_ngramed_id_x(x_train, chared_id_x)
 x_test_char_seq = get_ngramed_id_x(x_test, chared_id_x)
 
-# Convert labels to numpy arrays
 y_train = np.array(y_train)
 y_test = np.array(y_test)
 
-###################################### Training #########################################################
+# Instantiate the model
+cnn = TextCNN(
+    char_ngram_vocab_size=len(ngrams_dict) + 1,
+    word_ngram_vocab_size=len(words_dict) + 1,
+    char_vocab_size=len(chars_dict) + 1,
+    embedding_size=FLAGS["model.emb_dim"],
+    word_seq_len=FLAGS["data.max_len_words"],
+    char_seq_len=FLAGS["data.max_len_chars"],
+    l2_reg_lambda=FLAGS["train.l2_reg_lambda"],
+    mode=FLAGS["model.emb_mode"],
+    filter_sizes=list(map(int, FLAGS["model.filter_sizes"].split(",")))
+)
 
-def train_dev_step(model, x, y, emb_mode, optimizer, is_train=True):
-    if is_train:
-        dropout_rate = 0.5
-    else:
-        dropout_rate = 0.0  # No dropout during evaluation
+# Define optimizer
+optimizer = tf.keras.optimizers.Adam(learning_rate=FLAGS["train.lr"])
 
-    with tf.GradientTape() as tape:
-        # Forward pass
-        if emb_mode == 1:
-            logits = model(x_char_seq=x[0], training=is_train, dropout_rate=dropout_rate)
-        elif emb_mode == 2:
-            logits = model(x_word=x[0], training=is_train, dropout_rate=dropout_rate)
-        elif emb_mode == 3:
-            logits = model(x_char_seq=x[0], x_word=x[1], training=is_train, dropout_rate=dropout_rate)
-        elif emb_mode == 4:
-            logits = model(x_word=x[0], x_char=x[1], x_char_pad_idx=x[2], training=is_train, dropout_rate=dropout_rate)
-        elif emb_mode == 5:
-            logits = model(x_char_seq=x[0], x_word=x[1], x_char=x[2], x_char_pad_idx=x[3], training=is_train, dropout_rate=dropout_rate)
-        else:
-            raise ValueError("Invalid emb_mode: {}".format(emb_mode))
-
-        # Compute loss
-        loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-        loss = loss_fn(y, logits)
-
-    if is_train:
-        # Backward pass and optimization
-        gradients = tape.gradient(loss, model.trainable_variables)
-        optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-
-    # Compute accuracy
-    predictions = tf.cast(tf.sigmoid(logits) > 0.5, tf.float32)
-    correct_predictions = tf.equal(predictions, y)
-    acc = tf.reduce_mean(tf.cast(correct_predictions, tf.float32))
-    return loss, acc
-
-def make_batches(x_train_char_seq, x_train_word, x_train_char, y_train, batch_size, nb_epochs, shuffle=False):
+# Prepare datasets
+def make_batches(x_char_seq, x_word, x_char, y, batch_size, shuffle=True):
     dataset = None
     if FLAGS["model.emb_mode"] == 1:
-        dataset = tf.data.Dataset.from_tensor_slices(((x_train_char_seq,), y_train))
+        dataset = tf.data.Dataset.from_tensor_slices(((x_char_seq,), y))
     elif FLAGS["model.emb_mode"] == 2:
-        dataset = tf.data.Dataset.from_tensor_slices(((x_train_word,), y_train))
+        dataset = tf.data.Dataset.from_tensor_slices(((x_word,), y))
     elif FLAGS["model.emb_mode"] == 3:
-        dataset = tf.data.Dataset.from_tensor_slices(((x_train_char_seq, x_train_word), y_train))
+        dataset = tf.data.Dataset.from_tensor_slices(((x_char_seq, x_word), y))
     elif FLAGS["model.emb_mode"] == 4:
-        dataset = tf.data.Dataset.from_tensor_slices(((x_train_word, x_train_char), y_train))
+        dataset = tf.data.Dataset.from_tensor_slices(((x_word, x_char), y))
     elif FLAGS["model.emb_mode"] == 5:
-        dataset = tf.data.Dataset.from_tensor_slices(((x_train_char_seq, x_train_word, x_train_char), y_train))
+        dataset = tf.data.Dataset.from_tensor_slices(((x_char_seq, x_word, x_char), y))
     else:
         raise ValueError("Invalid emb_mode: {}".format(FLAGS["model.emb_mode"]))
-
     if shuffle:
         dataset = dataset.shuffle(buffer_size=10000)
-
-    dataset = dataset.repeat(nb_epochs).batch(batch_size)
+    dataset = dataset.batch(batch_size)
     return dataset
 
 def prep_batches(batch):
@@ -196,109 +167,96 @@ def prep_batches(batch):
     elif FLAGS["model.emb_mode"] in [4]:
         x_word = pad_sequences(x_batch[0], maxlen=FLAGS["data.max_len_words"], padding='post')
         x_char = pad_sequences(x_batch[1], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_char_pad_idx = None  # Adjust as necessary
-        x_batch_list.extend([x_word, x_char, x_char_pad_idx])
+        x_batch_list.extend([x_word, x_char])
     elif FLAGS["model.emb_mode"] in [5]:
         x_char_seq = pad_sequences(x_batch[0], maxlen=FLAGS["data.max_len_chars"], padding='post')
         x_word = pad_sequences(x_batch[1], maxlen=FLAGS["data.max_len_words"], padding='post')
         x_char = pad_sequences(x_batch[2], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_char_pad_idx = None  # Adjust as necessary
-        x_batch_list.extend([x_char_seq, x_word, x_char, x_char_pad_idx])
+        x_batch_list.extend([x_char_seq, x_word, x_char])
     else:
         raise ValueError("Invalid emb_mode: {}".format(FLAGS["model.emb_mode"]))
 
     y_batch = y_batch.astype(np.float32)
     return x_batch_list, y_batch
 
-# Instantiate the model
-cnn = TextCNN(
-    char_ngram_vocab_size=len(ngrams_dict) + 1,
-    word_ngram_vocab_size=len(words_dict) + 1,
-    char_vocab_size=len(chars_dict) + 1,
-    embedding_size=FLAGS["model.emb_dim"],
-    word_seq_len=FLAGS["data.max_len_words"],
-    char_seq_len=FLAGS["data.max_len_chars"],
-    l2_reg_lambda=FLAGS["train.l2_reg_lambda"],
-    mode=FLAGS["model.emb_mode"],
-    filter_sizes=list(map(int, FLAGS["model.filter_sizes"].split(",")))
-)
-
-# Define optimizer
-optimizer = tf.keras.optimizers.Adam(learning_rate=FLAGS["train.lr"])
-
-# Prepare datasets
-train_dataset = make_batches(x_train_char_seq, x_train_word, x_train_char, y_train, FLAGS["train.batch_size"], FLAGS['train.nb_epochs'], shuffle=True)
-test_dataset = make_batches(x_test_char_seq, x_test_word, x_test_char, y_test, FLAGS['train.batch_size'], nb_epochs=1, shuffle=False)
-
 # Training loop
-min_dev_loss = float('inf')
-dev_loss = float('inf')
-dev_acc = 0.0
+train_dataset = make_batches(x_train_char_seq, x_train_word, x_train_char, y_train, FLAGS["train.batch_size"], shuffle=True)
+test_dataset = make_batches(x_test_char_seq, x_test_word, x_test_char, y_test, FLAGS["train.batch_size"], shuffle=False)
+
+loss_fn = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
+train_loss = tf.keras.metrics.Mean(name='train_loss')
+train_accuracy = tf.keras.metrics.CategoricalAccuracy(name='train_accuracy')
+
+val_loss = tf.keras.metrics.Mean(name='val_loss')
+val_accuracy = tf.keras.metrics.CategoricalAccuracy(name='val_accuracy')
+
+checkpoint_dir = os.path.join(FLAGS["log.output_dir"], "checkpoints")
+if not os.path.exists(checkpoint_dir):
+    os.makedirs(checkpoint_dir)
+checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
+checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=cnn)
 
 if not os.path.exists(FLAGS["log.output_dir"]):
     os.makedirs(FLAGS["log.output_dir"])
 
 # Save dictionaries
-ngrams_dict_dir = os.path.join(FLAGS["log.output_dir"], "subwords_dict.p")
-pickle.dump(ngrams_dict, open(ngrams_dict_dir, "wb"))
-words_dict_dir = os.path.join(FLAGS["log.output_dir"], "words_dict.p")
-pickle.dump(words_dict, open(words_dict_dir, "wb"))
-chars_dict_dir = os.path.join(FLAGS["log.output_dir"], "chars_dict.p")
-pickle.dump(chars_dict, open(chars_dict_dir, "wb"))
+with open(os.path.join(FLAGS["log.output_dir"], "subwords_dict.p"), "wb") as f:
+    pickle.dump(ngrams_dict, f)
+with open(os.path.join(FLAGS["log.output_dir"], "words_dict.p"), "wb") as f:
+    pickle.dump(words_dict, f)
+with open(os.path.join(FLAGS["log.output_dir"], "chars_dict.p"), "wb") as f:
+    pickle.dump(chars_dict, f)
 
-train_log_dir = os.path.join(FLAGS["log.output_dir"], "train_logs.csv")
-val_log_dir = os.path.join(FLAGS["log.output_dir"], "val_logs.csv")
+for epoch in range(FLAGS["train.nb_epochs"]):
+    print(f"\nStart of epoch {epoch+1}")
+    train_loss.reset_states()
+    train_accuracy.reset_states()
 
-with open(train_log_dir, "w") as f:
-    f.write("step,time,loss,acc\n")
-with open(val_log_dir, "w") as f:
-    f.write("step,time,loss,acc\n")
+    for batch in tqdm(train_dataset, desc="Training"):
+        x_batch_list, y_batch = prep_batches(batch)
+        inputs = {}
+        if FLAGS["model.emb_mode"] in [4, 5]:
+            inputs['input_x_char'] = x_batch_list[1 if FLAGS["model.emb_mode"] == 4 else 2]
+            inputs['input_x_char_pad_idx'] = None  # Adjust if needed
+        if FLAGS["model.emb_mode"] in [2, 3, 4, 5]:
+            inputs['input_x_word'] = x_batch_list[0 if FLAGS["model.emb_mode"] in [2, 4] else 1]
+        if FLAGS["model.emb_mode"] in [1, 3, 5]:
+            inputs['input_x_char_seq'] = x_batch_list[0]
 
-checkpoint_dir = os.path.join(FLAGS["log.output_dir"], "checkpoints")
-if not os.path.exists(checkpoint_dir):
-    os.makedirs(checkpoint_dir)
-checkpoint_prefix = os.path.join(checkpoint_dir, "model")
-checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=cnn)
+        with tf.GradientTape() as tape:
+            logits = cnn(inputs, training=True)
+            loss = loss_fn(y_batch, logits)
 
-step = 0
-total_steps = int(np.ceil(len(y_train) / FLAGS["train.batch_size"]) * FLAGS["train.nb_epochs"])
+        gradients = tape.gradient(loss, cnn.trainable_variables)
+        optimizer.apply_gradients(zip(gradients, cnn.trainable_variables))
 
-progress_bar = tqdm(train_dataset, total=total_steps, desc="Training", ncols=100)
+        train_loss(loss)
+        train_accuracy(y_batch, logits)
 
-for batch in progress_bar:
-    x_batch_list, y_batch = prep_batches(batch)
-    loss, acc = train_dev_step(cnn, x_batch_list, y_batch, emb_mode=FLAGS["model.emb_mode"], optimizer=optimizer, is_train=True)
-    step += 1
+    print(f"Epoch {epoch+1}, Loss: {train_loss.result()}, Accuracy: {train_accuracy.result()}")
 
-    if step % FLAGS["log.print_every"] == 0:
-        with open(train_log_dir, "a") as f:
-            f.write("{:d},{:s},{:e},{:e}\n".format(step, datetime.datetime.now().isoformat(), loss.numpy(), acc.numpy()))
-        progress_bar.set_postfix({'loss': loss.numpy(), 'acc': acc.numpy()})
+    # Validation
+    val_loss.reset_states()
+    val_accuracy.reset_states()
 
-    if step % FLAGS["log.eval_every"] == 0:
-        total_loss = 0.0
-        total_acc = 0.0
-        nb_batches = 0
+    for batch in test_dataset:
+        x_batch_list, y_batch = prep_batches(batch)
+        inputs = {}
+        if FLAGS["model.emb_mode"] in [4, 5]:
+            inputs['input_x_char'] = x_batch_list[1 if FLAGS["model.emb_mode"] == 4 else 2]
+            inputs['input_x_char_pad_idx'] = None  # Adjust if needed
+        if FLAGS["model.emb_mode"] in [2, 3, 4, 5]:
+            inputs['input_x_word'] = x_batch_list[0 if FLAGS["model.emb_mode"] in [2, 4] else 1]
+        if FLAGS["model.emb_mode"] in [1, 3, 5]:
+            inputs['input_x_char_seq'] = x_batch_list[0]
 
-        for test_batch in test_dataset:
-            x_test_batch_list, y_test_batch = prep_batches(test_batch)
-            loss_val, acc_val = train_dev_step(cnn, x_test_batch_list, y_test_batch, emb_mode=FLAGS["model.emb_mode"], optimizer=optimizer, is_train=False)
-            batch_size = y_test_batch.shape[0]
-            total_loss += loss_val.numpy() * batch_size
-            total_acc += acc_val.numpy() * batch_size
-            nb_batches += batch_size
+        logits = cnn(inputs, training=False)
+        loss = loss_fn(y_batch, logits)
 
-        dev_loss = total_loss / nb_batches
-        dev_acc = total_acc / nb_batches
+        val_loss(loss)
+        val_accuracy(y_batch, logits)
 
-        with open(val_log_dir, "a") as f:
-            f.write("{:d},{:s},{:e},{:e}\n".format(step, datetime.datetime.now().isoformat(), dev_loss, dev_acc))
-        print(f"\nValidation Loss: {dev_loss}, Validation Accuracy: {dev_acc}\n")
+    print(f"Validation Loss: {val_loss.result()}, Validation Accuracy: {val_accuracy.result()}")
 
-    if step % FLAGS["log.checkpoint_every"] == 0:
-        if dev_loss < min_dev_loss:
-            min_dev_loss = dev_loss
-            checkpoint.save(file_prefix=checkpoint_prefix)
-
-# Save the final model
-cnn.save(os.path.join(FLAGS["log.output_dir"], "final_model.h5"))
+    # Save checkpoint
+    checkpoint.save(file_prefix=checkpoint_prefix)

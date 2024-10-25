@@ -90,7 +90,7 @@ def main():
         char_seq_len=args.data_max_len_chars,
         mode=args.model_emb_mode,
         filter_sizes=list(map(int, args.model_filter_sizes.split(","))),
-        num_classes=1,  # Binary classification
+        #num_classes=1,  # Binary classification
     )
 
     # Restore the checkpoint

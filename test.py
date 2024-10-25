@@ -35,6 +35,8 @@ parser.add_argument('--data.char_dict_dir', type=str, default="runs/10000/chars_
 default_emb_dim = 32
 parser.add_argument('--model.emb_dim', type=int, default=default_emb_dim, metavar="EMBDIM",
                     help="Embedding dimension size (default: {})".format(default_emb_dim))
+parser.add_argument('--model.filter_sizes', type=str, default="3,4,5,6", metavar="FILTERSIZES",
+                    help="Filter sizes of the convolution layer")
 default_emb_mode = 1
 parser.add_argument('--model.emb_mode', type=int, default=default_emb_mode, metavar="EMBMODE",
                     help="1: charCNN, 2: wordCNN, 3: char + wordCNN, 4: char-level wordCNN, 5: char + char-level wordCNN (default: {})".format(default_emb_mode))

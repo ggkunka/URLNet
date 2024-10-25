@@ -62,6 +62,7 @@ urls, labels = read_data(FLAGS["data.data_dir"])
 x, word_reverse_dict = get_word_vocab(urls, FLAGS["data.max_len_words"])
 word_x = get_words(x, word_reverse_dict, FLAGS["data.delimit_mode"], urls)
 
+# Load dictionaries
 ngram_dict = pickle.load(open(FLAGS["data.subword_dict_dir"], "rb"))
 print("Size of subword vocabulary (train): {}".format(len(ngram_dict)))
 word_dict = pickle.load(open(FLAGS["data.word_dict_dir"], "rb"))
@@ -75,19 +76,36 @@ chared_id_x = char_id_x(urls, chars_dict, FLAGS["data.max_len_chars"])
 
 print("Number of testing URLs: {}".format(len(labels)))
 
+# Pad sequences based on the embedding mode
+if FLAGS["model.emb_mode"] == 1:
+    x_char_seq_padded = pad_sequences(chared_id_x, maxlen=FLAGS["data.max_len_chars"], padding='post')
+elif FLAGS["model.emb_mode"] == 2:
+    x_word_padded = pad_sequences(worded_id_x, maxlen=FLAGS["data.max_len_words"], padding='post')
+elif FLAGS["model.emb_mode"] == 3:
+    x_char_seq_padded = pad_sequences(chared_id_x, maxlen=FLAGS["data.max_len_chars"], padding='post')
+    x_word_padded = pad_sequences(worded_id_x, maxlen=FLAGS["data.max_len_words"], padding='post')
+elif FLAGS["model.emb_mode"] == 4:
+    x_word_padded = pad_sequences(worded_id_x, maxlen=FLAGS["data.max_len_words"], padding='post')
+    x_char_padded = pad_sequences(chared_id_x, maxlen=FLAGS["data.max_len_words"], padding='post')
+elif FLAGS["model.emb_mode"] == 5:
+    x_char_seq_padded = pad_sequences(chared_id_x, maxlen=FLAGS["data.max_len_chars"], padding='post')
+    x_word_padded = pad_sequences(worded_id_x, maxlen=FLAGS["data.max_len_words"], padding='post')
+    x_char_padded = pad_sequences(chared_id_x, maxlen=FLAGS["data.max_len_words"], padding='post')
+else:
+    raise ValueError("Invalid emb_mode: {}".format(FLAGS["model.emb_mode"]))
+
 # Prepare datasets
-def make_batches(x_char_seq, x_word, x_char, batch_size):
-    dataset = None
+def make_batches(batch_size):
     if FLAGS["model.emb_mode"] == 1:
-        dataset = tf.data.Dataset.from_tensor_slices((x_char_seq))
+        dataset = tf.data.Dataset.from_tensor_slices(x_char_seq_padded)
     elif FLAGS["model.emb_mode"] == 2:
-        dataset = tf.data.Dataset.from_tensor_slices((x_word))
+        dataset = tf.data.Dataset.from_tensor_slices(x_word_padded)
     elif FLAGS["model.emb_mode"] == 3:
-        dataset = tf.data.Dataset.from_tensor_slices((x_char_seq, x_word))
+        dataset = tf.data.Dataset.from_tensor_slices((x_char_seq_padded, x_word_padded))
     elif FLAGS["model.emb_mode"] == 4:
-        dataset = tf.data.Dataset.from_tensor_slices((x_word, x_char))
+        dataset = tf.data.Dataset.from_tensor_slices((x_word_padded, x_char_padded))
     elif FLAGS["model.emb_mode"] == 5:
-        dataset = tf.data.Dataset.from_tensor_slices((x_char_seq, x_word, x_char))
+        dataset = tf.data.Dataset.from_tensor_slices((x_char_seq_padded, x_word_padded, x_char_padded))
     else:
         raise ValueError("Invalid emb_mode: {}".format(FLAGS["model.emb_mode"]))
     dataset = dataset.batch(batch_size)
@@ -96,24 +114,15 @@ def make_batches(x_char_seq, x_word, x_char, batch_size):
 def prep_batches(batch):
     x_batch_list = []
     if FLAGS["model.emb_mode"] == 1:
-        x_char_seq = pad_sequences(batch, maxlen=FLAGS["data.max_len_chars"], padding='post')
-        x_batch_list.append(x_char_seq)
+        x_batch_list.append(batch)
     elif FLAGS["model.emb_mode"] == 2:
-        x_word = pad_sequences(batch, maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_batch_list.append(x_word)
+        x_batch_list.append(batch)
     elif FLAGS["model.emb_mode"] == 3:
-        x_char_seq = pad_sequences(batch[0], maxlen=FLAGS["data.max_len_chars"], padding='post')
-        x_word = pad_sequences(batch[1], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_batch_list.extend([x_char_seq, x_word])
+        x_batch_list.extend([batch[0], batch[1]])
     elif FLAGS["model.emb_mode"] == 4:
-        x_word = pad_sequences(batch[0], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_char = pad_sequences(batch[1], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_batch_list.extend([x_word, x_char])
+        x_batch_list.extend([batch[0], batch[1]])
     elif FLAGS["model.emb_mode"] == 5:
-        x_char_seq = pad_sequences(batch[0], maxlen=FLAGS["data.max_len_chars"], padding='post')
-        x_word = pad_sequences(batch[1], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_char = pad_sequences(batch[2], maxlen=FLAGS["data.max_len_words"], padding='post')
-        x_batch_list.extend([x_char_seq, x_word, x_char])
+        x_batch_list.extend([batch[0], batch[1], batch[2]])
     else:
         raise ValueError("Invalid emb_mode: {}".format(FLAGS["model.emb_mode"]))
     return x_batch_list
@@ -134,16 +143,14 @@ cnn = TextCNN(
 checkpoint = tf.train.Checkpoint(model=cnn)
 latest_checkpoint = tf.train.latest_checkpoint(FLAGS["log.checkpoint_dir"])
 if latest_checkpoint:
-    checkpoint.restore(latest_checkpoint)
+    # Use expect_partial() to suppress warnings about optimizer variables
+    checkpoint.restore(latest_checkpoint).expect_partial()
     print("Restored from {}".format(latest_checkpoint))
 else:
     print("No checkpoint found at {}".format(FLAGS["log.checkpoint_dir"]))
 
-# Pad sequences
-x_char_seq_padded = pad_sequences(chared_id_x, maxlen=FLAGS["data.max_len_chars"], padding='post')
-
 # Prepare dataset
-test_dataset = make_batches(chared_id_x, worded_id_x, chared_id_x, FLAGS["test.batch_size"])
+test_dataset = make_batches(FLAGS["test.batch_size"])
 
 # Evaluation
 all_predictions = []
@@ -154,7 +161,6 @@ for batch in tqdm(test_dataset, desc="Testing"):
     inputs = {}
     if FLAGS["model.emb_mode"] in [4, 5]:
         inputs['input_x_char'] = x_batch_list[1 if FLAGS["model.emb_mode"] == 4 else 2]
-        inputs['input_x_char_pad_idx'] = None  # Adjust if needed
     if FLAGS["model.emb_mode"] in [2, 3, 4, 5]:
         inputs['input_x_word'] = x_batch_list[0 if FLAGS["model.emb_mode"] in [2, 4] else 1]
     if FLAGS["model.emb_mode"] in [1, 3, 5]:
